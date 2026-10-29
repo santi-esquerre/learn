@@ -156,6 +156,8 @@ Por elección explícita del usuario:
 - researcher: `openai-codex/gpt-6-luna`, thinking `medium` (frontmatter de `agents/researcher.md`);
 - visión, segmentación y clasificación de ítems: `openai-codex/gpt-6-luna` (`modelo_vision` de `curso.config.json`).
 
+**Con otra clave (DA58):** si uno de estos modelos no tiene credenciales en la máquina, se usa el de la conversación. pi lo elige solo entre los que tienen credenciales. Vale para la visión (si acepta imágenes), el researcher y los subagentes, y el doctor dice cuál se usa en cada rol. `curso.config.local.json` (o *Ajustes* en la app) fija otro por máquina.
+
 El frontmatter de `agents/researcher.md` coincide con `curso.config.json`; el doctor lo comprueba. En Fase 7 el usuario autorizó «Usar openai-codex» al comprobar que `openai` ya no tenía credenciales configuradas. Antes de cambiar el proyecto respondieron Sol por texto y Luna por texto/PNG; doctor repitió los dos pings de Luna correctamente. Sólo cambiaron archivos del proyecto, sin claves nuevas, login ni preferencias personales. Los informes anteriores conservan el proveedor histórico `openai`.
 
 Esto confirma disponibilidad y aceptación de imágenes, **no** la fidelidad del OCR matemático. En Fase 1 se transcribieron tres páginas con Luna solo como referencia del benchmark; todavía requieren revisión. Ver `informes/fase1.md`.
@@ -211,7 +213,7 @@ learn corre en Windows con los mismos tests en verde que en Linux (DA39–DA41).
 
 - **Instalación:** Node.js, Git for Windows (trae Git Bash, que pi necesita), uv y pi con `npm install -g --ignore-scripts @earendil-works/pi-coding-agent@1.4.0`. Clonar con `git -c core.autocrlf=false clone -b cursos …`: el repo fuerza LF con `.gitattributes`, pero un clon con `autocrlf` previo puede traer CRLF.
 - **Sin `pi-learn`:** fish y tmux no aplican. Se abre con la app, o en una terminal con `pi -ns --skill .pi/skills` desde la raíz del vault.
-- **El venv:** `.pi/.venv/Scripts/python.exe`. Los textos que sugieren comandos ya usan esa ruta.
+- **El venv:** `.pi/.venv/Scripts/python.exe`. Los textos que arma el código ya usan esa ruta. Los fijos (`CURSOS.md`, este archivo) muestran la de Linux; fuera de una clase, el prompt le dice al modelo cuál es la de esta máquina (DA57).
 - **Tesseract:** el de conda-forge (`micromamba create -p <carpeta> -c conda-forge tesseract=5.5.2 ghostscript libcurl`) más los modelos `spa`, `eng` y `osd` de `tessdata_fast`. Su ruta va en `curso.config.local.json` (`ruta_tesseract`), no en el `curso.config.json` versionado (DA40). La app lo hace sola desde «Preparar la computadora».
 - **Carpeta del vault:** conviene una local (por ejemplo `C:\Users\<vos>\pi-learning`) y no una sincronizada con OneDrive, por los enlaces y bloqueos de archivos de la ingesta.
 
@@ -271,7 +273,7 @@ Los ensayos de marker, docling y visión están separados en [`scripts/ingesta/b
 
 Mismo venv; PyYAML `6.0.3` guarda `items.yaml`. No requiere GPU ni dependencias ML. Después de cambiar los archivos de la extensión, ejecutar `/reload` o abrir una sesión nueva para que pi registre las tools.
 
-- `transcribir_paginas(curso, doc, paginas)` usa `modelo_vision`, renderiza las páginas ya ingeridas, guarda Markdown, actualiza BM25/informe y devuelve solo un resumen. Más de 50 páginas (`max_paginas_vision_sin_confirmar`) exige confirmación interactiva; sin UI se rechaza. La caché evita repetir llamadas vigentes y una página `manual` cuenta como caché; cambiar modelo, prompt o umbral puede invalidarla y consumir nuevamente. Sin credenciales del modelo de visión no llama y dice «… ejecutá /login.».
+- `transcribir_paginas(curso, doc, paginas)` usa `modelo_vision`, renderiza las páginas ya ingeridas, guarda Markdown, actualiza BM25/informe y devuelve solo un resumen. Más de 50 páginas (`max_paginas_vision_sin_confirmar`) exige confirmación interactiva; sin UI se rechaza. La caché evita repetir llamadas vigentes y una página `manual` cuenta como caché; cambiar modelo, prompt o umbral puede invalidarla y consumir nuevamente. Sin credenciales del modelo de visión usa el de la conversación, si acepta imágenes (DA58). Si no, no llama y dice «… ejecutá /login.».
 - `guardar_items(curso, doc, items)` guarda una segmentación: `{id, paginas, enunciado, solucion?: {doc, id}, solucion_de?, puntos?}`. Los ids conservan la numeración del documento. Una solución integrada en el mismo PDF es otro ítem con `solucion_de: '<id del enunciado>'`; `puntos` es el puntaje oficial (número ≥ 0 o texto de hasta 40 caracteres). Requiere páginas transcriptas, valida referencias y no pisa ediciones manuales.
 
 Son tools de preparación, no comandos `/`. Desde la preparación por tema (Fase 3, abajo) ya no hace falta llamarlas a mano: sirven si querés preparar un documento antes de estudiarlo. Para repetir la prueba digital original sin crear otro curso:

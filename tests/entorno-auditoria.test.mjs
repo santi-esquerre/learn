@@ -55,7 +55,7 @@ async function cargar(t, { home, agente }, argumentos) {
     t.after(() => session.dispose());
     await session.bindExtensions({});
     const { systemPromptOptions } = await session.extensionRunner.emitBeforeAgentStart({ messageType: "user", prompt: "" }, { cwd: vaultDir });
-    return { skills: loader.getSkills(), secciones: Object.keys(systemPromptOptions.sections), settingsManager };
+    return { skills: loader.getSkills(), secciones: Object.keys(systemPromptOptions.sections), textos: systemPromptOptions.sections, settingsManager };
   } finally { process.env.HOME = anterior; }
 }
 
@@ -69,6 +69,13 @@ test("H14: pi-learn abre el tutor sin ponytail ni skills globales y con las skil
   for (const n of ["teach", "curso-nuevo", "curso-agregar", "visualize"]) assert.ok(nombres.includes(n), n);
   assert.ok(!nombres.includes("ponytail"));
   assert.ok(skills.skills.find(s => s.name === "teach").filePath.endsWith("Projects/pi-learning/.pi/skills/teach/SKILL.md"));
+});
+
+// DA57: un modelo que copiaba los comandos de CURSOS.md (bin/python) en Windows fallaba y salía a buscar otro Python.
+test("DA57: fuera de una clase, en Windows el prompt da el Python de learn de esta máquina; en Linux no agrega nada", async t => {
+  const { textos } = await cargar(t, hogar(t), ["-ns", "--skill", join(piDir, "skills")]);
+  if (process.platform === "win32") assert.equal(textos.python, "Esta computadora es Windows: el Python de learn es .pi/.venv/Scripts/python.exe. Donde CURSOS.md u otro texto diga .pi/.venv/bin/python, usá esa ruta; no busques otro Python.");
+  else assert.equal(textos.python, undefined);
 });
 
 test("H09: el thinking del tutor queda oculto como setting de proyecto", async t => {
@@ -137,7 +144,8 @@ test("H80/H14/H09: el doctor del proyecto ve el prompt, las skills y el thinking
   assert.match(r.stdout, /^✓ Thinking oculto/m);
   // El de settings.json, salvo que esta máquina tenga el suyo en curso.config.local.json (DA49).
   const principal = leerConfigLocal(piDir).modelo_principal || "openai-codex/gpt-6.1-sol";
-  assert.match(r.stdout, new RegExp(`^[✓✗] Credenciales principal: ${principal.replace(/[.]/g, "[.]")}: `, "m"));
+  // «!» si no tiene credenciales pero otro modelo sí (DA58).
+  assert.match(r.stdout, new RegExp(`^[✓✗!] Credenciales principal: ${principal.replace(/[.]/g, "[.]")}: `, "m"));
 });
 
 test("preventivo: la lista blanca de secciones del doctor cubre las que agrega el curso, también la de /simulacro", () => {
@@ -149,7 +157,7 @@ test("preventivo: la lista blanca de secciones del doctor cubre las que agrega e
   assert.deepEqual([...propias].filter(s => !blanca.includes(s)), []);
 });
 
-test("H80/H14/H09: el doctor marca credenciales, secciones, colisiones y thinking, y avisa por otra versión de pi", t => {
+test("H80/H14/H09: el doctor marca credenciales, secciones, colisiones y thinking, y avisa por otra versión de pi; con la clave de otro proveedor, cada rol usa ése (DA58)", t => {
   const h = hogar(t), v = mkdtempSync(join(tmpdir(), "pi-doctor-")), copia = join(v, ".pi");
   t.after(() => rmSync(v, { recursive: true, force: true }));
   // Como una máquina nueva: sin el venv ni los modelos propios de esta (curso.config.local.json, DA40 y DA49). Lo que se
@@ -161,8 +169,9 @@ test("H80/H14/H09: el doctor marca credenciales, secciones, colisiones y thinkin
   writeFileSync(join(copia, "skills/otra-teach/SKILL.md"), "---\nname: teach\ndescription: Duplicada.\n---\nDuplicada.\n");
   if (process.platform === "win32") writeFileSync(join(v, "bin/pi.cmd"), "@echo 1.5.0\r\n");
   else writeFileSync(join(v, "bin/pi"), "#!/bin/sh\necho 1.5.0\n", { mode: 0o755 });
-  const r = spawnSync(process.execPath, [join(copia, "scripts/doctor"), "--sin-red"], { cwd: v, encoding: "utf8", timeout: 60000,
+  const doctor = () => spawnSync(process.execPath, [join(copia, "scripts/doctor"), "--sin-red"], { cwd: v, encoding: "utf8", timeout: 60000,
     env: { ...process.env, HOME: h.home, USERPROFILE: h.home, PI_CODING_AGENT_DIR: h.agente, PI_MANAGED_INSTALL_ROOT: instalacion, PATH: `${join(v, "bin")}${delimiter}${process.env.PATH}` } });
+  const r = doctor();
   assert.match(r.stdout, /^! pi: 1\.5\.0, distinta de la fijada 1\.4\.0; verificá APIs antes de usar/m);
   assert.doesNotMatch(r.stdout, /^✗ pi:/m);
   assert.match(r.stdout, /^✗ Prompt del tutor: secciones ajenas: ponytail;/m);
@@ -170,6 +179,12 @@ test("H80/H14/H09: el doctor marca credenciales, secciones, colisiones y thinkin
   assert.match(r.stdout, /^✗ Thinking oculto:/m);
   for (const rol of ["principal", "researcher", "visión"]) assert.match(r.stdout, new RegExp(`^✗ Credenciales ${rol}: openai-codex/`, "m"));
   assert.match(r.stdout, /^✗ Entorno de ingesta: falta \.pi\/\.venv; recrealo desde el vault: UV_PROJECT_ENVIRONMENT=\$PWD\/\.pi\/\.venv uv sync --project \.pi\/scripts\/ingesta --python 3\.13\.13 --python-preference only-managed --locked$/m);
+  // DA58: con la clave de otro proveedor (un alumno que no usa ChatGPT), ningún rol queda en rojo: cada uno dice qué usa.
+  writeFileSync(join(h.agente, "auth.json"), JSON.stringify({ anthropic: { type: "api_key", key: "sk-ant-prueba" } }));
+  const conClave = doctor();
+  for (const rol of ["principal", "researcher", "visión"]) assert.match(conClave.stdout, new RegExp(`^! Credenciales ${rol}: openai-codex/[^:]+: sin credenciales; se usa anthropic/claude-[^,]+, que sí tiene$`, "m"));
+  assert.doesNotMatch(conClave.stdout, /^✗ Credenciales/m);
+  assert.match(conClave.stdout, /^✗ Modelo visión: anthropic\/claude-[^:]+: sin verificar \(--sin-red\)$/m);
 });
 
 test("comprobar: respeta ruta_tesseract y dice cómo recrear el venv con Python de uv", t => {
